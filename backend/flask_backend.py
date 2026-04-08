@@ -20,12 +20,20 @@ import numpy as np
 import json
 import joblib
 import sqlite3
+import io
+import csv
+import time
 from pathlib import Path
 from datetime import datetime, timedelta
+from collections import defaultdict
 import threading
 import uuid
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score,
+    f1_score, roc_auc_score, confusion_matrix
+)
 
 # ML Libraries
 import xgboost as xgb
@@ -91,6 +99,56 @@ print("  Note: CNN uses feature importance instead of SHAP (compatibility)")
 X_test = pd.read_csv(DATA_DIR / "X_test.csv")
 y_test = pd.read_csv(DATA_DIR / "y_test.csv").squeeze()
 print(f"✓ Loaded test data: {X_test.shape}")
+
+# ── Pre-compute model performance metrics on a 5,000-sample subset ──────────
+print("Computing model performance metrics (5,000 sample)...")
+_METRIC_N  = 5000
+_metric_idx = np.random.choice(len(y_test), _METRIC_N, replace=False)
+_Xm = X_test.iloc[_metric_idx]
+_ym = y_test.iloc[_metric_idx].values
+
+# XGBoost
+_xgb_proba = xgb_model.predict(xgb.DMatrix(_Xm))
+_xgb_pred  = (_xgb_proba >= 0.5).astype(int)
+
+# CNN
+_Xm_scaled = scaler.transform(_Xm)
+_cnn_proba = cnn_model.predict(_Xm_scaled, verbose=0).flatten()
+_cnn_pred  = (_cnn_proba >= 0.5).astype(int)
+
+# Ensemble
+_ens_proba = 0.6 * _xgb_proba + 0.4 * _cnn_proba
+_ens_pred  = (_ens_proba >= 0.5).astype(int)
+
+def _metrics(y_true, y_pred, y_proba):
+    cm = confusion_matrix(y_true, y_pred)
+    tn, fp, fn, tp = cm.ravel()
+    return {
+        "accuracy":  round(float(accuracy_score(y_true, y_pred)),  4),
+        "precision": round(float(precision_score(y_true, y_pred, zero_division=0)), 4),
+        "recall":    round(float(recall_score(y_true, y_pred, zero_division=0)),    4),
+        "f1":        round(float(f1_score(y_true, y_pred, zero_division=0)),        4),
+        "auc":       round(float(roc_auc_score(y_true, y_proba)),  4),
+        "confusion_matrix": {"tp": int(tp), "tn": int(tn), "fp": int(fp), "fn": int(fn)},
+        "sample_size": _METRIC_N,
+    }
+
+MODEL_METRICS = {
+    "xgboost":  _metrics(_ym, _xgb_pred, _xgb_proba),
+    "cnn":      _metrics(_ym, _cnn_pred,  _cnn_proba),
+    "ensemble": _metrics(_ym, _ens_pred,  _ens_proba),
+}
+
+# Workload reduction: % of alerts the AI classifies with ≥90% confidence
+_all_conf = np.concatenate([
+    np.where(_ens_pred == 1, _ens_proba, 1 - _ens_proba)
+])
+WORKLOAD_REDUCTION = {
+    "high_confidence_pct": round(float((_all_conf >= 0.9).mean() * 100), 2),
+    "needs_review_pct":    round(float((_all_conf  < 0.9).mean() * 100), 2),
+    "threshold": 0.9,
+}
+print(f"✓ Model metrics computed  |  Workload reduction: {WORKLOAD_REDUCTION['high_confidence_pct']}% auto-classifiable")
 
 print("=" * 60)
 print("Backend Ready!")
@@ -169,9 +227,39 @@ def init_database():
         )
     """)
 
+    # Password reset tokens
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets (
+            token TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used INTEGER DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
     conn.commit()
     conn.close()
     print("✓ Database initialized")
+
+
+# ─── In-memory login rate limiter ────────────────────────────────────────────
+# Stores {ip: [timestamp, ...]} — max 5 attempts per 60 seconds
+_login_attempts = defaultdict(list)
+_login_lock     = threading.Lock()
+
+def is_rate_limited(ip):
+    now    = time.time()
+    window = 60   # seconds
+    limit  = 5    # max attempts
+
+    with _login_lock:
+        # Purge attempts outside window
+        _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < window]
+        if len(_login_attempts[ip]) >= limit:
+            return True
+        _login_attempts[ip].append(now)
+        return False
 
 # Initialize database on startup
 init_database()
@@ -806,6 +894,10 @@ def login():
     email    = data.get('email', '').strip().lower()
     password = data.get('password', '')
 
+    ip = request.remote_addr or '0.0.0.0'
+    if is_rate_limited(ip):
+        return jsonify({"error": "Too many login attempts. Please wait 60 seconds."}), 429
+
     conn = get_db()
     user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
 
@@ -1030,6 +1122,146 @@ def get_aact_metrics():
             for mdl, stats in by_model.items()
         },
     })
+
+
+# ============================================================
+# Password Reset
+# ============================================================
+
+@app.route('/api/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    """
+    Generate a password reset token for the given email.
+    In production this token would be emailed; here it is returned
+    directly so the demo works without an SMTP server.
+    Body: { email }
+    """
+    email = (request.json or {}).get('email', '').strip().lower()
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    conn = get_db()
+    user = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+
+    if not user:
+        conn.close()
+        # Don't reveal whether email exists
+        return jsonify({"message": "If that email is registered you will receive a reset token."}), 200
+
+    token      = str(uuid.uuid4())
+    expires_at = (datetime.now() + timedelta(minutes=30)).isoformat()
+    conn.execute(
+        "INSERT INTO password_resets (token, user_id, expires_at) VALUES (?,?,?)",
+        (token, user['id'], expires_at)
+    )
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "message": "Reset token generated. Use it within 30 minutes.",
+        "reset_token": token,   # In production: send via email, remove from response
+        "_note": "Demo mode — token returned directly. In production this would be emailed."
+    })
+
+
+@app.route('/api/auth/reset-password', methods=['POST'])
+def reset_password():
+    """
+    Reset password using a valid reset token.
+    Body: { token, new_password }
+    """
+    data         = request.json or {}
+    token        = data.get('token', '').strip()
+    new_password = data.get('new_password', '')
+
+    if not token or not new_password:
+        return jsonify({"error": "token and new_password are required"}), 400
+    if len(new_password) < 6:
+        return jsonify({"error": "Password must be at least 6 characters"}), 400
+
+    conn = get_db()
+    reset = conn.execute(
+        "SELECT * FROM password_resets WHERE token = ? AND used = 0 AND expires_at > ?",
+        (token, datetime.now().isoformat())
+    ).fetchone()
+
+    if not reset:
+        conn.close()
+        return jsonify({"error": "Invalid or expired reset token"}), 400
+
+    conn.execute(
+        "UPDATE users SET password_hash = ? WHERE id = ?",
+        (generate_password_hash(new_password), reset['user_id'])
+    )
+    conn.execute("UPDATE password_resets SET used = 1 WHERE token = ?", (token,))
+    # Invalidate all active sessions for this user
+    conn.execute("DELETE FROM sessions WHERE user_id = ?", (reset['user_id'],))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": "Password reset successfully. Please log in again."})
+
+
+# ============================================================
+# Model Performance Metrics
+# ============================================================
+
+@app.route('/api/analytics/model-performance', methods=['GET'])
+@require_auth
+def get_model_performance():
+    """
+    Return pre-computed performance metrics for all 3 models
+    evaluated on a 5,000-sample subset of the test set.
+    """
+    return jsonify({
+        "models":           MODEL_METRICS,
+        "workload_reduction": WORKLOAD_REDUCTION,
+        "dataset":          "UNSW-NB15 test set",
+        "sample_size":      _METRIC_N,
+    })
+
+
+# ============================================================
+# Analytics Export (CSV)
+# ============================================================
+
+@app.route('/api/analytics/export', methods=['GET'])
+@require_auth
+def export_analytics():
+    """Download all predictions as a CSV file."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT p.id, p.timestamp, p.mode, p.model,
+               p.prediction, p.confidence, p.severity,
+               t.decision, t.analyst_level, t.notes
+        FROM predictions p
+        LEFT JOIN triage_decisions t ON t.prediction_id = p.id
+        ORDER BY p.timestamp DESC
+    """).fetchall()
+    conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "id", "timestamp", "mode", "model",
+        "prediction", "confidence", "severity",
+        "triage_decision", "analyst_level", "notes"
+    ])
+    for r in rows:
+        writer.writerow([
+            r["id"], r["timestamp"], r["mode"], r["model"],
+            "attack" if r["prediction"] == 1 else "benign",
+            r["confidence"], r["severity"],
+            r["decision"] or "", r["analyst_level"] or "", r["notes"] or ""
+        ])
+
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode()),
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=f"soc_predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    )
 
 
 # ============================================================

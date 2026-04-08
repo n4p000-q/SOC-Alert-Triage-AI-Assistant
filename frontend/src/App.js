@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import ToastContainer from './components/Toast';
 import LoginPage from './components/LoginPage';
 import Dashboard from './components/Dashboard';
@@ -11,6 +12,19 @@ const TABS = [
   { id: 'batch',    name: 'Batch Upload',    icon: '📊' },
   { id: 'analytics',name: 'Analytics',       icon: '📈' },
 ];
+
+function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+  return (
+    <button
+      onClick={toggleTheme}
+      title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+      className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-lg text-xs font-medium transition-colors"
+    >
+      {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+    </button>
+  );
+}
 
 const ROLE_COLORS = {
   L1: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
@@ -62,6 +76,9 @@ function AppShell() {
                   System Online
                 </span>
               </div>
+
+              {/* Theme toggle */}
+              <ThemeToggle />
 
               {/* User badge */}
               <div className="flex items-center gap-2">
@@ -127,10 +144,12 @@ function AppShell() {
 // ─── Root: wrap with providers ────────────────────────────────────────────────
 export default function App() {
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <AppShell />
-      </AuthProvider>
-    </ToastProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <AppShell />
+        </AuthProvider>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }

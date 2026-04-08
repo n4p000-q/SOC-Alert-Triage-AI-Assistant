@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { loadSimulationAlerts } from '../utils/api';
 import AlertCard from './AlertCard';
 
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'benign'];
+
 function LiveMode() {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -11,6 +13,10 @@ function LiveMode() {
   const [selectedModel, setSelectedModel] = useState('ensemble');
   const [stats, setStats] = useState(null);
 
+  // Filters
+  const [filterSeverity,   setFilterSeverity]   = useState('all');
+  const [filterPrediction, setFilterPrediction] = useState('all'); // 'all' | 'attack' | 'benign'
+
   // Load alerts on mount
   useEffect(() => {
     loadAlerts();
@@ -18,15 +24,13 @@ function LiveMode() {
 
   // Auto-play functionality
   useEffect(() => {
-    if (isPlaying && currentIndex < alerts.length - 1) {
-      const timer = setTimeout(() => {
-        setCurrentIndex(currentIndex + 1);
-      }, 3000); // 3 seconds per alert
+    if (isPlaying && currentIndex < filteredAlerts.length - 1) {
+      const timer = setTimeout(() => setCurrentIndex(i => i + 1), 3000);
       return () => clearTimeout(timer);
-    } else if (isPlaying && currentIndex === alerts.length - 1) {
+    } else if (isPlaying && currentIndex >= filteredAlerts.length - 1) {
       setIsPlaying(false);
     }
-  }, [isPlaying, currentIndex, alerts.length]);
+  }, [isPlaying, currentIndex, filteredAlerts.length]);
 
   const loadAlerts = async () => {
     try {
@@ -43,15 +47,11 @@ function LiveMode() {
   };
 
   const handleNext = () => {
-    if (currentIndex < alerts.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    }
+    if (currentIndex < filteredAlerts.length - 1) setCurrentIndex(currentIndex + 1);
   };
 
   const handlePrevious = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1);
-    }
+    if (currentIndex > 0) setCurrentIndex(currentIndex - 1);
   };
 
   const handlePlayPause = () => {
@@ -83,7 +83,16 @@ function LiveMode() {
     );
   }
 
-  const currentAlert = alerts[currentIndex];
+  // Apply filters
+  const filteredAlerts = alerts.filter(a => {
+    const modelData = a[selectedModel] || a.ensemble;
+    if (filterPrediction === 'attack' && modelData.prediction !== 1) return false;
+    if (filterPrediction === 'benign' && modelData.prediction !== 0) return false;
+    if (filterSeverity !== 'all' && modelData.severity !== filterSeverity) return false;
+    return true;
+  });
+
+  const currentAlert = filteredAlerts[currentIndex] || filteredAlerts[0];
 
   return (
     <div className="space-y-6">
@@ -93,7 +102,10 @@ function LiveMode() {
           <div>
             <h2 className="text-2xl font-bold text-white">Live Simulation</h2>
             <p className="text-slate-400 mt-1">
-              Alert {currentIndex + 1} of {alerts.length}
+              Alert {filteredAlerts.length > 0 ? currentIndex + 1 : 0} of {filteredAlerts.length}
+              {filteredAlerts.length !== alerts.length && (
+                <span className="text-slate-500 ml-1">(filtered from {alerts.length})</span>
+              )}
             </p>
           </div>
           
@@ -110,6 +122,35 @@ function LiveMode() {
               <option value="ensemble">Ensemble</option>
             </select>
           </div>
+        </div>
+
+        {/* Filters */}
+        <div className="flex items-center gap-4 flex-wrap mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400 text-xs font-medium">Prediction:</span>
+            {[['all','All'],['attack','Attack'],['benign','Benign']].map(([val, label]) => (
+              <button key={val} onClick={() => { setFilterPrediction(val); setCurrentIndex(0); }}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                  filterPrediction === val
+                    ? 'bg-blue-500 border-blue-400 text-white'
+                    : 'bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500'
+                }`}>{label}</button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400 text-xs font-medium">Severity:</span>
+            {['all', ...SEVERITY_ORDER].map(val => (
+              <button key={val} onClick={() => { setFilterSeverity(val); setCurrentIndex(0); }}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all capitalize ${
+                  filterSeverity === val
+                    ? 'bg-blue-500 border-blue-400 text-white'
+                    : 'bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500'
+                }`}>{val}</button>
+            ))}
+          </div>
+          <span className="text-slate-500 text-xs ml-auto">
+            {filteredAlerts.length} / {alerts.length} alerts
+          </span>
         </div>
 
         {/* Statistics */}
@@ -138,9 +179,9 @@ function LiveMode() {
         <div className="flex items-center justify-center space-x-4">
           <button
             onClick={handlePrevious}
-            disabled={currentIndex === 0}
+            disabled={currentIndex === 0 || filteredAlerts.length === 0}
             className={`px-6 py-2 rounded-lg font-medium ${
-              currentIndex === 0
+              currentIndex === 0 || filteredAlerts.length === 0
                 ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
                 : 'bg-slate-700 text-white hover:bg-slate-600'
             }`}
@@ -161,9 +202,9 @@ function LiveMode() {
           
           <button
             onClick={handleNext}
-            disabled={currentIndex === alerts.length - 1}
+            disabled={currentIndex >= filteredAlerts.length - 1 || filteredAlerts.length === 0}
             className={`px-6 py-2 rounded-lg font-medium ${
-              currentIndex === alerts.length - 1
+              currentIndex >= filteredAlerts.length - 1 || filteredAlerts.length === 0
                 ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
                 : 'bg-slate-700 text-white hover:bg-slate-600'
             }`}
@@ -183,7 +224,7 @@ function LiveMode() {
         <div className="mt-4 bg-slate-700 rounded-full h-2 overflow-hidden">
           <div
             className="bg-blue-500 h-full transition-all duration-300"
-            style={{ width: `${((currentIndex + 1) / alerts.length) * 100}%` }}
+            style={{ width: filteredAlerts.length ? `${((currentIndex + 1) / filteredAlerts.length) * 100}%` : '0%' }}
           ></div>
         </div>
       </div>

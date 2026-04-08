@@ -45,6 +45,16 @@ export const getMe = async () => {
   return response.data;
 };
 
+export const forgotPassword = async (email) => {
+  const response = await api.post('/auth/forgot-password', { email });
+  return response.data;
+};
+
+export const resetPassword = async (token, new_password) => {
+  const response = await api.post('/auth/reset-password', { token, new_password });
+  return response.data;
+};
+
 // ============================================================
 // Health Check
 // ============================================================
@@ -134,6 +144,22 @@ export const getAnalytics = async () => {
 export const getAACTMetrics = async () => {
   const response = await api.get('/analytics/aact-metrics');
   return response.data;
+};
+
+export const getModelPerformance = async () => {
+  const response = await api.get('/analytics/model-performance');
+  return response.data;
+};
+
+export const exportAnalyticsCSV = async () => {
+  const response = await api.get('/analytics/export', { responseType: 'blob' });
+  const url  = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement('a');
+  link.href  = url;
+  link.setAttribute('download', `soc_predictions_${Date.now()}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 };
 
 export default api;

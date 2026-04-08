@@ -3,7 +3,7 @@ import {
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
-import { getAnalytics, getAACTMetrics } from '../utils/api';
+import { getAnalytics, getAACTMetrics, getModelPerformance, exportAnalyticsCSV } from '../utils/api';
 
 // ─── Colour palettes ──────────────────────────────────────────────────────────
 const SEVERITY_COLORS = {
@@ -75,24 +75,67 @@ function Skeleton({ className = '' }) {
 }
 
 // ─── Main dashboard ───────────────────────────────────────────────────────────
+const MODEL_METRIC_COLS = ['accuracy', 'precision', 'recall', 'f1', 'auc'];
+const MODEL_METRIC_LABELS = { accuracy: 'Accuracy', precision: 'Precision', recall: 'Recall', f1: 'F1 Score', auc: 'AUC-ROC' };
+
+function ConfusionMatrix({ cm, model }) {
+  if (!cm) return null;
+  const { tp, tn, fp, fn } = cm;
+  const total = tp + tn + fp + fn;
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-2 capitalize">{model}</p>
+      <div className="grid grid-cols-2 gap-1 text-center text-xs">
+        <div className="bg-green-900/40 border border-green-500/30 rounded p-2">
+          <p className="text-green-300 font-bold text-lg">{tn}</p>
+          <p className="text-green-600">TN</p>
+        </div>
+        <div className="bg-orange-900/40 border border-orange-500/30 rounded p-2">
+          <p className="text-orange-300 font-bold text-lg">{fp}</p>
+          <p className="text-orange-600">FP</p>
+        </div>
+        <div className="bg-red-900/40 border border-red-500/30 rounded p-2">
+          <p className="text-red-300 font-bold text-lg">{fn}</p>
+          <p className="text-red-600">FN</p>
+        </div>
+        <div className="bg-blue-900/40 border border-blue-500/30 rounded p-2">
+          <p className="text-blue-300 font-bold text-lg">{tp}</p>
+          <p className="text-blue-600">TP</p>
+        </div>
+      </div>
+      <p className="text-xs text-slate-600 mt-1 text-center">n = {total.toLocaleString()}</p>
+    </div>
+  );
+}
+
 export default function AnalyticsDashboard() {
-  const [overview, setOverview]   = useState(null);
-  const [aact, setAact]           = useState(null);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState(null);
+  const [overview, setOverview]     = useState(null);
+  const [aact, setAact]             = useState(null);
+  const [perf, setPerf]             = useState(null);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState(null);
+  const [exporting, setExporting]   = useState(false);
 
   const fetchAll = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [ov, ac] = await Promise.all([getAnalytics(), getAACTMetrics()]);
+      const [ov, ac, pf] = await Promise.all([getAnalytics(), getAACTMetrics(), getModelPerformance()]);
       setOverview(ov);
       setAact(ac);
+      setPerf(pf);
     } catch (e) {
       setError(e.message || 'Failed to load analytics');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try { await exportAnalyticsCSV(); }
+    catch (e) { console.error('Export failed', e); }
+    finally { setExporting(false); }
   };
 
   useEffect(() => { fetchAll(); }, []);
@@ -173,12 +216,18 @@ export default function AnalyticsDashboard() {
             System-wide prediction stats and AACT feedback loop metrics
           </p>
         </div>
-        <button
-          onClick={fetchAll}
-          className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 text-sm font-medium transition-colors"
-        >
-          🔄 Refresh
-        </button>
+        <div className="flex gap-2">
+          <button onClick={fetchAll}
+            className="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 text-sm font-medium transition-colors">
+            🔄 Refresh
+          </button>
+          <button onClick={handleExport} disabled={exporting}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              exporting ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                        : 'bg-green-600 hover:bg-green-500 text-white'}`}>
+            {exporting ? 'Exporting…' : '⬇ Export CSV'}
+          </button>
+        </div>
       </div>
 
       {/* ── Top stat cards ────────────────────────────────────── */}
@@ -364,6 +413,102 @@ export default function AnalyticsDashboard() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+      )}
+
+      {/* ── Row 4: Model performance metrics ─────────────────── */}
+      {perf && (
+        <>
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-slate-700" />
+            <p className="text-xs text-slate-400 uppercase tracking-widest font-semibold">
+              Model Performance — UNSW-NB15 Test Set ({perf.sample_size.toLocaleString()} samples)
+            </p>
+            <div className="h-px flex-1 bg-slate-700" />
+          </div>
+
+          {/* Metrics table */}
+          <div className="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-700">
+                  <th className="px-5 py-3 text-left text-xs text-slate-400 uppercase tracking-wider font-semibold">Model</th>
+                  {MODEL_METRIC_COLS.map(col => (
+                    <th key={col} className="px-4 py-3 text-center text-xs text-slate-400 uppercase tracking-wider font-semibold">
+                      {MODEL_METRIC_LABELS[col]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {['xgboost', 'cnn', 'ensemble'].map((model, i) => {
+                  const m = perf.models[model];
+                  if (!m) return null;
+                  return (
+                    <tr key={model} className={i < 2 ? 'border-b border-slate-700/50' : ''}>
+                      <td className="px-5 py-4">
+                        <span className={`text-xs font-bold px-2 py-1 rounded border ${MODEL_COLORS[model]}`}>
+                          {model.toUpperCase()}
+                        </span>
+                      </td>
+                      {MODEL_METRIC_COLS.map(col => (
+                        <td key={col} className="px-4 py-4 text-center">
+                          <span className={`font-mono font-semibold text-sm ${
+                            m[col] >= 0.95 ? 'text-green-400' :
+                            m[col] >= 0.90 ? 'text-blue-400'  :
+                            m[col] >= 0.80 ? 'text-yellow-400': 'text-red-400'
+                          }`}>
+                            {(m[col] * 100).toFixed(1)}%
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Confusion matrices + workload reduction */}
+          <div className="grid grid-cols-4 gap-6">
+            {['xgboost', 'cnn', 'ensemble'].map(model => (
+              <div key={model} className="bg-slate-800/60 border border-slate-700 rounded-xl p-5">
+                <SectionTitle>Confusion Matrix</SectionTitle>
+                <ConfusionMatrix cm={perf.models[model]?.confusion_matrix} model={model} />
+              </div>
+            ))}
+
+            {/* Workload reduction */}
+            <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-5">
+              <SectionTitle>Workload Reduction</SectionTitle>
+              <p className="text-xs text-slate-500 mb-4">
+                Alerts the AI classifies with ≥{perf.workload_reduction.threshold * 100}% confidence (no analyst needed)
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-green-400 font-medium">Auto-classifiable</span>
+                    <span className="text-green-400 font-mono font-bold">{perf.workload_reduction.high_confidence_pct}%</span>
+                  </div>
+                  <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
+                    <div className="h-full bg-green-500 rounded-full" style={{ width: `${perf.workload_reduction.high_confidence_pct}%` }} />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-amber-400 font-medium">Needs analyst review</span>
+                    <span className="text-amber-400 font-mono font-bold">{perf.workload_reduction.needs_review_pct}%</span>
+                  </div>
+                  <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
+                    <div className="h-full bg-amber-500 rounded-full" style={{ width: `${perf.workload_reduction.needs_review_pct}%` }} />
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 mt-4">
+                Based on {perf.sample_size.toLocaleString()} test samples
+              </p>
+            </div>
+          </div>
+        </>
       )}
 
     </div>

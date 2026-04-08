@@ -12,6 +12,52 @@
   animation: fadeIn 0.2s ease-out forwards;
 }
 
+/* ── Light mode overrides ──────────────────────────────── */
+html.light-mode {
+  filter: none;
+}
+
+html.light-mode body {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+html.light-mode .bg-slate-900  { background-color: #e2e8f0 !important; }
+html.light-mode .bg-slate-800  { background-color: #f8fafc !important; }
+html.light-mode .bg-slate-800\/60 { background-color: rgba(248,250,252,0.9) !important; }
+html.light-mode .bg-slate-700  { background-color: #e2e8f0 !important; }
+html.light-mode .bg-slate-700\/60 { background-color: rgba(226,232,240,0.7) !important; }
+html.light-mode .bg-slate-700\/50 { background-color: rgba(226,232,240,0.6) !important; }
+html.light-mode .bg-slate-700\/30 { background-color: rgba(226,232,240,0.4) !important; }
+html.light-mode .bg-slate-700\/40 { background-color: rgba(226,232,240,0.5) !important; }
+
+html.light-mode .border-slate-700  { border-color: #cbd5e1 !important; }
+html.light-mode .border-slate-700\/60 { border-color: rgba(203,213,225,0.7) !important; }
+html.light-mode .border-slate-600  { border-color: #94a3b8 !important; }
+
+html.light-mode .text-white      { color: #0f172a !important; }
+html.light-mode .text-slate-200  { color: #1e293b !important; }
+html.light-mode .text-slate-300  { color: #334155 !important; }
+html.light-mode .text-slate-400  { color: #475569 !important; }
+html.light-mode .text-slate-500  { color: #64748b !important; }
+html.light-mode .text-slate-600  { color: #64748b !important; }
+
+html.light-mode .from-slate-900  { --tw-gradient-from: #e2e8f0 !important; }
+html.light-mode .via-slate-800   { --tw-gradient-via:  #f1f5f9 !important; }
+html.light-mode .to-slate-900    { --tw-gradient-to:   #e2e8f0 !important; }
+
+html.light-mode .bg-slate-900\/50 { background-color: rgba(241,245,249,0.95) !important; }
+html.light-mode .bg-slate-900\/30 { background-color: rgba(241,245,249,0.8)  !important; }
+
+/* Input fields */
+html.light-mode input,
+html.light-mode textarea,
+html.light-mode select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
+}
+
 /* ── Dark-themed scrollbar ─────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
