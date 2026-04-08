@@ -33,8 +33,12 @@ __pycache__/
 
 # ── Environment / secrets ─────────────────────────────────────
 .env
-.env.*
+.env.local
+.env.production
 *.env
+# Keep .env.example files (safe placeholders, no real secrets)
+!.env.example
+!frontend/.env.example
 
 # ── OS files ──────────────────────────────────────────────────
 .DS_Store

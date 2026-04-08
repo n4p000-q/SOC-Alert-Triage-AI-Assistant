@@ -1,0 +1,35 @@
+version: '3.9'
+
+services:
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: soc_backend
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app/backend      # live backend code
+      - ./models:/app/models        # ML models
+      - ./data:/app/data            # processed dataset
+      - soc_db:/app/backend/db      # persistent SQLite database
+    environment:
+      - FLASK_ENV=development
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: soc_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:5000/api
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  soc_db:

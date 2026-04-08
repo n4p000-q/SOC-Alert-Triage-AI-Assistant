@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// Base API URL - change this if backend runs on different port
-const API_BASE_URL = 'http://localhost:5000/api';
+// Base API URL — set via REACT_APP_API_URL in frontend/.env
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 // Create axios instance with default config
 const api = axios.create({
