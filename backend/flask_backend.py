@@ -265,6 +265,38 @@ def is_rate_limited(ip):
 init_database()
 
 # ============================================================
+# Auth Helpers (must be defined before any route uses @require_auth)
+# ============================================================
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def require_auth(f):
+    """Decorator: validate Bearer token and attach user to request context"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get('Authorization', '')
+        token = auth_header.replace('Bearer ', '').strip()
+        if not token:
+            return jsonify({"error": "Authentication required"}), 401
+        conn = get_db()
+        row = conn.execute(
+            "SELECT u.* FROM sessions s JOIN users u ON s.user_id = u.id "
+            "WHERE s.token = ? AND s.expires_at > ?",
+            (token, datetime.now().isoformat())
+        ).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({"error": "Invalid or expired session"}), 401
+        request.current_user = dict(row)
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ============================================================
 # Prediction Functions
 # ============================================================
 
@@ -775,72 +807,6 @@ def submit_triage():
         "id": triage_id,
         "status": "recorded"
     })
-
-# ============================================================
-# API Routes - Analytics
-# ============================================================
-
-@app.route('/api/analytics/overview', methods=['GET'])
-def get_analytics():
-    """Get system analytics overview"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # Total predictions
-    cursor.execute("SELECT COUNT(*) FROM predictions")
-    total_predictions = cursor.fetchone()[0]
-    
-    # Predictions by model
-    cursor.execute("""
-        SELECT model, COUNT(*) 
-        FROM predictions 
-        GROUP BY model
-    """)
-    by_model = dict(cursor.fetchall())
-    
-    # Triage decisions
-    cursor.execute("SELECT COUNT(*) FROM triage_decisions")
-    total_triage = cursor.fetchone()[0]
-    
-    conn.close()
-    
-    return jsonify({
-        "total_predictions": total_predictions,
-        "predictions_by_model": by_model,
-        "total_triage_decisions": total_triage
-    })
-
-# ============================================================
-# Auth Helpers
-# ============================================================
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def require_auth(f):
-    """Decorator: validate Bearer token and attach user to request context"""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        auth_header = request.headers.get('Authorization', '')
-        token = auth_header.replace('Bearer ', '').strip()
-        if not token:
-            return jsonify({"error": "Authentication required"}), 401
-        conn = get_db()
-        row = conn.execute(
-            "SELECT u.* FROM sessions s JOIN users u ON s.user_id = u.id "
-            "WHERE s.token = ? AND s.expires_at > ?",
-            (token, datetime.now().isoformat())
-        ).fetchone()
-        conn.close()
-        if not row:
-            return jsonify({"error": "Invalid or expired session"}), 401
-        request.current_user = dict(row)
-        return f(*args, **kwargs)
-    return decorated
-
 
 # ============================================================
 # Auth Routes

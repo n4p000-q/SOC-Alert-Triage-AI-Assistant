@@ -17,6 +17,15 @@ function LiveMode() {
   const [filterSeverity,   setFilterSeverity]   = useState('all');
   const [filterPrediction, setFilterPrediction] = useState('all'); // 'all' | 'attack' | 'benign'
 
+  // Apply filters (must be declared before useEffect that references filteredAlerts.length)
+  const filteredAlerts = alerts.filter(a => {
+    const modelData = a[selectedModel] || a.ensemble;
+    if (filterPrediction === 'attack' && modelData.prediction !== 1) return false;
+    if (filterPrediction === 'benign' && modelData.prediction !== 0) return false;
+    if (filterSeverity !== 'all' && modelData.severity !== filterSeverity) return false;
+    return true;
+  });
+
   // Load alerts on mount
   useEffect(() => {
     loadAlerts();
@@ -82,15 +91,6 @@ function LiveMode() {
       </div>
     );
   }
-
-  // Apply filters
-  const filteredAlerts = alerts.filter(a => {
-    const modelData = a[selectedModel] || a.ensemble;
-    if (filterPrediction === 'attack' && modelData.prediction !== 1) return false;
-    if (filterPrediction === 'benign' && modelData.prediction !== 0) return false;
-    if (filterSeverity !== 'all' && modelData.severity !== filterSeverity) return false;
-    return true;
-  });
 
   const currentAlert = filteredAlerts[currentIndex] || filteredAlerts[0];
 
