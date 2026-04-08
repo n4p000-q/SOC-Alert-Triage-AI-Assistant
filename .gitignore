@@ -1,0 +1,54 @@
+# ── Python virtual environment ────────────────────────────────
+soc_env/
+venv/
+.venv/
+env/
+
+# ── Dataset (21 GB — too large for GitHub) ────────────────────
+data/
+
+# ── Database (contains user credentials) ──────────────────────
+backend/soc_triage.db
+
+# ── Runtime directories (created automatically) ───────────────
+backend/uploads/
+backend/results/
+
+# ── Frontend dependencies & build output ─────────────────────
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+frontend/.env.production
+
+# ── Python cache ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Jupyter ───────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── Environment / secrets ─────────────────────────────────────
+.env
+.env.*
+*.env
+
+# ── OS files ──────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
