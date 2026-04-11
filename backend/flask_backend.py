@@ -227,6 +227,23 @@ def init_database():
         )
     """)
 
+    # ── Safe migration: add workflow columns to predictions ──────────────────
+    _workflow_cols = [
+        ("status",             "TEXT DEFAULT 'awaiting_action'"),
+        ("owner_id",           "TEXT"),
+        ("owner_name",         "TEXT"),
+        ("owner_role",         "TEXT"),
+        ("escalated_to",       "TEXT"),
+        ("escalated_by_name",  "TEXT"),
+        ("escalated_at",       "TEXT"),
+        ("escalation_notes",   "TEXT"),
+    ]
+    for _col, _def in _workflow_cols:
+        try:
+            cursor.execute(f"ALTER TABLE predictions ADD COLUMN {_col} {_def}")
+        except Exception:
+            pass  # Column already exists
+
     # Password reset tokens
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS password_resets (
@@ -505,8 +522,17 @@ def load_simulation_alerts():
         conn.commit()
         conn.close()
 
+        alert["workflow"] = {
+            "status": "awaiting_action",
+            "owner_name": None,
+            "owner_role": None,
+            "escalated_to": None,
+            "escalated_by_name": None,
+            "escalated_at": None,
+            "escalation_notes": None,
+        }
         alerts.append(alert)
-    
+
     # Statistics
     true_attacks = int(labels.sum())
     true_benign = len(labels) - true_attacks
@@ -765,6 +791,59 @@ def download_batch_results(job_id):
     
     return send_file(results_path, as_attachment=True)
 
+
+@app.route('/api/batch/<job_id>/analytics', methods=['GET'])
+@require_auth
+def get_batch_analytics(job_id):
+    """Return aggregated analytics for a completed batch job"""
+    results_path = RESULTS_DIR / f"{job_id}_results.csv"
+
+    if not results_path.exists():
+        return jsonify({"error": "Results not found"}), 404
+
+    try:
+        df = pd.read_csv(results_path)
+
+        total = len(df)
+        attacks = int((df['prediction'] == 1).sum())
+        benign = total - attacks
+
+        severity_order = ['benign', 'low', 'medium', 'high', 'critical']
+        severity_counts = {s: int((df['severity'] == s).sum()) for s in severity_order}
+
+        # Confidence histogram — 5 equal buckets
+        bins = [0, 0.2, 0.4, 0.6, 0.8, 1.01]
+        labels = ['0–20%', '20–40%', '40–60%', '60–80%', '80–100%']
+        df['conf_bucket'] = pd.cut(df['confidence'], bins=bins, labels=labels, right=False)
+        conf_dist = {label: int((df['conf_bucket'] == label).sum()) for label in labels}
+
+        # Top SHAP features across all rows
+        feature_counter = {}
+        for col in ['top_feature_1', 'top_feature_2', 'top_feature_3']:
+            if col in df.columns:
+                for feat in df[col].dropna():
+                    feature_counter[feat] = feature_counter.get(feat, 0) + 1
+        top_features = sorted(feature_counter.items(), key=lambda x: x[1], reverse=True)[:10]
+        top_features = [{"feature": k, "count": v} for k, v in top_features]
+
+        avg_confidence = round(float(df['confidence'].mean()), 4)
+        attack_rate = round(attacks / total * 100, 1) if total else 0
+
+        return jsonify({
+            "total": total,
+            "attacks": attacks,
+            "benign": benign,
+            "attack_rate": attack_rate,
+            "avg_confidence": avg_confidence,
+            "severity_counts": severity_counts,
+            "confidence_distribution": conf_dist,
+            "top_features": top_features,
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ============================================================
 # API Routes - Triage Feedback (AACT Loop)
 # ============================================================
@@ -787,26 +866,155 @@ def submit_triage():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
+    now        = datetime.now().isoformat()
+    pred_id    = data.get('prediction_id')
+    decision   = data.get('decision')
+    analyst    = data.get('analyst_level')
+    notes      = data.get('notes', '')
+    user       = request.current_user
+
     cursor.execute("""
         INSERT INTO triage_decisions
         (id, prediction_id, analyst_level, decision, timestamp, notes)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (
-        triage_id,
-        data.get('prediction_id'),
-        data.get('analyst_level'),
-        data.get('decision'),
-        datetime.now().isoformat(),
-        data.get('notes', '')
-    ))
-    
+    """, (triage_id, pred_id, analyst, decision, now, notes))
+
+    # Update prediction workflow status
+    if decision in ('close_attack', 'close_benign'):
+        cursor.execute(
+            "UPDATE predictions SET status='closed', owner_id=?, owner_name=?, owner_role=? WHERE id=?",
+            (user['id'], user['name'], user['role'], pred_id)
+        )
+    elif decision == 'investigate':
+        # Investigate = take ownership + mark in progress
+        cursor.execute("""
+            UPDATE predictions SET status='in_progress', owner_id=?, owner_name=?, owner_role=?
+            WHERE id=?
+        """, (user['id'], user['name'], user['role'], pred_id))
+
     conn.commit()
     conn.close()
-    
+
     return jsonify({
-        "id": triage_id,
-        "status": "recorded"
+        "id":     triage_id,
+        "status": "recorded",
+        "workflow_status": "closed" if decision in ('close_attack', 'close_benign')
+                           else "in_progress" if decision == 'investigate'
+                           else None,
     })
+
+# ============================================================
+# Alert Workflow — Claim / Escalate / Escalation Queue
+# ============================================================
+
+@app.route('/api/alerts/<alert_id>/claim', methods=['POST'])
+@require_auth
+def claim_alert(alert_id):
+    """Take ownership of an alert (status → in_progress)."""
+    user = request.current_user
+    conn = get_db()
+    row  = conn.execute(
+        "SELECT status FROM predictions WHERE id=?", (alert_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Alert not found"}), 404
+    if row['status'] in ('closed',):
+        conn.close()
+        return jsonify({"error": "Alert is already closed"}), 400
+
+    conn.execute("""
+        UPDATE predictions
+        SET status='in_progress', owner_id=?, owner_name=?, owner_role=?
+        WHERE id=?
+    """, (user['id'], user['name'], user['role'], alert_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "status":     "in_progress",
+        "owner_name": user['name'],
+        "owner_role": user['role'],
+    })
+
+
+@app.route('/api/alerts/<alert_id>/escalate', methods=['POST'])
+@require_auth
+def escalate_alert(alert_id):
+    """
+    Escalate an alert to a higher tier.
+    Body: { target_tier: 'L2'|'L3', notes: str }
+    """
+    user        = request.current_user
+    data        = request.json or {}
+    target_tier = data.get('target_tier', '')
+    notes       = data.get('notes', '')
+
+    if target_tier not in ('L2', 'L3'):
+        return jsonify({"error": "target_tier must be L2 or L3"}), 400
+
+    conn = get_db()
+    row  = conn.execute(
+        "SELECT status FROM predictions WHERE id=?", (alert_id,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "Alert not found"}), 404
+    if row['status'] == 'closed':
+        conn.close()
+        return jsonify({"error": "Alert is already closed"}), 400
+
+    now = datetime.now().isoformat()
+    conn.execute("""
+        UPDATE predictions
+        SET status='escalated', escalated_to=?, escalated_by_name=?,
+            escalated_at=?, escalation_notes=?, owner_id=NULL, owner_name=NULL, owner_role=NULL
+        WHERE id=?
+    """, (target_tier, user['name'], now, notes, alert_id))
+
+    # Record in triage_decisions so AACT metrics include escalations
+    conn.execute("""
+        INSERT INTO triage_decisions (id, prediction_id, analyst_level, decision, timestamp, notes)
+        VALUES (?,?,?,?,?,?)
+    """, (str(uuid.uuid4()), alert_id, user['role'], 'escalate', now, notes))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "status":            "escalated",
+        "escalated_to":      target_tier,
+        "escalated_by_name": user['name'],
+        "escalated_at":      now,
+    })
+
+
+@app.route('/api/alerts/escalated', methods=['GET'])
+@require_auth
+def get_escalated_alerts():
+    """
+    Return all alerts escalated to the current user's tier.
+    Only accessible to L2 and L3.
+    """
+    user = request.current_user
+    role = user['role']
+    if role == 'L1':
+        return jsonify({"error": "L1 analysts do not have an escalation queue"}), 403
+
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT id, timestamp, prediction, confidence, severity,
+               status, owner_name, owner_role,
+               escalated_to, escalated_by_name, escalated_at, escalation_notes
+        FROM predictions
+        WHERE escalated_to = ?
+        ORDER BY escalated_at DESC
+    """, (role,)).fetchall()
+    conn.close()
+
+    alerts = [dict(r) for r in rows]
+    return jsonify({"alerts": alerts, "total": len(alerts)})
+
 
 # ============================================================
 # Auth Routes
