@@ -206,7 +206,7 @@ function FeatureGroup({ group, values, onChange }) {
       </button>
 
       {!collapsed && (
-        <div className="border-t border-slate-700/60 px-5 py-4 grid grid-cols-3 gap-x-6 gap-y-4">
+        <div className="border-t border-slate-700/60 px-5 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4">
           {group.fields.map(field => (
             <div key={field.key}>
               <label className="block text-xs text-slate-400 font-mono mb-1.5" title={field.hint}>
@@ -304,17 +304,17 @@ function SingleMode() {
         </div>
       </div>
 
-      <div className="grid grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         {/* ── Left: form ──────────────────────────────────────────── */}
-        <div className="col-span-7 space-y-4">
+        <div className="lg:col-span-7 space-y-4">
 
           {/* Categorical dropdowns */}
           <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-5">
             <p className="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-4">
               Network Classification
             </p>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs text-slate-400 font-mono mb-1.5">Protocol</label>
                 <select value={protocol} onChange={e => setProtocol(e.target.value)} className={selectCls}>
@@ -375,7 +375,7 @@ function SingleMode() {
         </div>
 
         {/* ── Right: info panel ───────────────────────────────────── */}
-        <div className="col-span-5">
+        <div className="lg:col-span-5">
           <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-5 sticky top-24 space-y-5">
 
             <div>

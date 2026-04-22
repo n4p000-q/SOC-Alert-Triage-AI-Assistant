@@ -105,6 +105,11 @@ export const getBatchStatus = async (jobId) => {
   return response.data;
 };
 
+export const getBatchAnalytics = async (jobId) => {
+  const response = await api.get(`/batch/${jobId}/analytics`);
+  return response.data;
+};
+
 export const downloadBatchResults = async (jobId) => {
   const response = await api.get(`/batch/${jobId}/download`, {
     responseType: 'blob',
@@ -118,6 +123,24 @@ export const downloadBatchResults = async (jobId) => {
   document.body.appendChild(link);
   link.click();
   link.remove();
+};
+
+// ============================================================
+// Alert Workflow
+// ============================================================
+export const claimAlert = async (alertId) => {
+  const response = await api.post(`/alerts/${alertId}/claim`);
+  return response.data;
+};
+
+export const escalateAlert = async (alertId, targetTier, notes = '') => {
+  const response = await api.post(`/alerts/${alertId}/escalate`, { target_tier: targetTier, notes });
+  return response.data;
+};
+
+export const getEscalatedAlerts = async () => {
+  const response = await api.get('/alerts/escalated');
+  return response.data;
 };
 
 // ============================================================

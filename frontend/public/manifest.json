@@ -1,6 +1,6 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "SOC Triage AI",
+  "name": "SOC Analyst Triage AI Assistant",
   "icons": [
     {
       "src": "favicon.ico",

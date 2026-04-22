@@ -231,7 +231,7 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* ── Top stat cards ────────────────────────────────────── */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Total Predictions"
           value={overview.total_predictions.toLocaleString()}
@@ -262,7 +262,7 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* ── Row 1: Pie charts ─────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
         {/* Attack vs Benign */}
         <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-5">
@@ -314,7 +314,7 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* ── Row 2: Severity bar + AACT metrics ───────────────── */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
         {/* Severity distribution */}
         <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-5">
@@ -428,6 +428,7 @@ export default function AnalyticsDashboard() {
 
           {/* Metrics table */}
           <div className="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-700">
@@ -466,10 +467,11 @@ export default function AnalyticsDashboard() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* Confusion matrices + workload reduction */}
-          <div className="grid grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
             {['xgboost', 'cnn', 'ensemble'].map(model => (
               <div key={model} className="bg-slate-800/60 border border-slate-700 rounded-xl p-5">
                 <SectionTitle>Confusion Matrix</SectionTitle>

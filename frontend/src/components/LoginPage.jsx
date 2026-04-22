@@ -134,7 +134,7 @@ export default function LoginPage() {
           <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/30">
             <span className="text-3xl">🛡️</span>
           </div>
-          <h1 className="text-2xl font-bold text-white">SOC Triage Assistant</h1>
+          <h1 className="text-2xl font-bold text-white">SOC Analyst Triage AI Assistant</h1>
           <p className="text-slate-400 text-sm mt-1">AI-Powered Security Operations Center</p>
         </div>
 
@@ -316,7 +316,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-slate-600">
-          National University of Lesotho · SOC AI Triage · 2025
+          National University of Lesotho · SOC Analyst Triage AI Assistant · 2025
         </p>
       </div>
     </div>
