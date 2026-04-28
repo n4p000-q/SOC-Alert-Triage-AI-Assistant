@@ -148,9 +148,9 @@ Place the processed files in `data/processed/`:
 
 ---
 
-## Author
+## Authors
 
-**Napo Mokoena** — National University of Lesotho, 2025
+**Napo Qheku and Kabelo Thesele** — National University of Lesotho, 2025
 
 ---
 
