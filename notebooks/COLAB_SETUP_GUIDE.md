@@ -1,10 +1,10 @@
-# 🚀 Google Colab Setup Guide
+# Google Colab Setup Guide
 
 ## Complete Step-by-Step Instructions for Running XGBoost on Colab
 
 ---
 
-## 📋 **Prerequisites**
+## **Prerequisites**
 
 Before starting, make sure you have:
 - ✅ Run `02_preprocessing.ipynb` locally to generate processed CSVs
