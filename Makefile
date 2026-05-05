@@ -7,14 +7,14 @@ FRONTEND  := frontend
 .PHONY: all setup install-backend install-frontend \
         run-backend run-frontend run \
         docker-up docker-down \
-        test seed clean help
+        test seed clean help process-data
 
 # ── Default ───────────────────────────────────────────────────────────────────
 all: help
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
-setup: install-backend install-frontend
-	@echo "Setup complete. Run 'make run' to start both servers."
+setup: install-backend install-frontend process-data
+	@echo "✅ Setup complete. Data processed. Run 'make run' to start both servers."
 
 install-backend: $(VENV)/bin/activate
 $(VENV)/bin/activate:
@@ -25,8 +25,14 @@ $(VENV)/bin/activate:
 install-frontend:
 	cd $(FRONTEND) && npm install
 
+# ── Data processing ──────────────────────────────────────────────────────────
+process-data:
+	@echo "🔄 Running data processing script..."
+	$(PYTHON) process_data.py
+	@echo "✅ Data processing complete."
+
 # ── Development servers ────────────────────────────────────────────────────────
-run-backend:
+run-backend: process-data
 	$(PYTHON) backend/flask_backend.py
 
 run-frontend:
@@ -47,7 +53,7 @@ docker-down:
 	docker-compose down
 
 # ── Database ──────────────────────────────────────────────────────────────────
-seed:
+seed: process-data
 	$(PYTHON) seed_database.py
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -63,17 +69,19 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 	rm -f backend/soc_triage.db
+	@echo "🧹 Cleaned caches and database."
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 help:
 	@echo "SOC Alert Triage AI Assistant"
 	@echo ""
 	@echo "Usage:"
-	@echo "  make setup            Create venv + install all dependencies"
-	@echo "  make run              Start backend and frontend together"
-	@echo "  make run-backend      Start Flask backend only  (localhost:5000)"
-	@echo "  make run-frontend     Start React frontend only (localhost:3000)"
-	@echo "  make seed             Populate DB with sample users and data"
+	@echo "  make setup            Create venv + install all dependencies + process data"
+	@echo "  make process-data     Run data processing script (required before running server)"
+	@echo "  make run              Start backend and frontend together (auto-processes data)"
+	@echo "  make run-backend      Start Flask backend only (runs process-data first)"
+	@echo "  make run-frontend     Start React frontend only"
+	@echo "  make seed             Populate DB with sample users and data (auto-processes data)"
 	@echo "  make test             Run pytest test suite"
 	@echo "  make build-frontend   Build React app for production"
 	@echo "  make docker-up        Build and start with Docker Compose"
